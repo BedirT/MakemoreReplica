@@ -43,7 +43,7 @@ class MakeMoreMLP:
         xs, ys = [], []
         for word in data:
             seq = [0] * self.num_letter_seq # initially all 0's (for '.')
-            for c in word:
+            for c in word + '.':
                 idx = self.stoi[c]
                 xs.append(seq)
                 ys.append(idx)
@@ -86,7 +86,7 @@ class MakeMoreMLP:
         for e in range(self.num_epochs):
             # forward pass
             # sample a mini batch
-            idxs = torch.randint(0, len(self.x_train), (self.batch_size,))
+            idxs = torch.randint(0, self.x_train.shape[0], (self.batch_size,))
             emb = self.C[self.x_train[idxs]]
             h = torch.tanh(emb.view(-1, self.num_dimensions * self.num_letter_seq) @ self.W1 + self.b1)
             logits = h @ self.W2 + self.b2
@@ -103,31 +103,29 @@ class MakeMoreMLP:
             for p in self.parameters:
                 p.data += -lr * p.grad
 
-        emb = self.C[self.x_train]
+    def get_loss(self, data_split: str):
+        splits = {
+            'train': (self.x_train, self.y_train),
+            'val': (self.x_val, self.y_val),
+            'test': (self.x_test, self.y_test)
+        }[data_split]
+        emb = self.C[splits[0]]
         h = torch.tanh(emb.view(-1, self.num_dimensions * self.num_letter_seq) @ self.W1 + self.b1)
         logits = h @ self.W2 + self.b2
-        loss = F.cross_entropy(logits, self.y_train)
-        emb = self.C[self.x_val]
-        h = torch.tanh(emb.view(-1, self.num_dimensions * self.num_letter_seq) @ self.W1 + self.b1)
-        logits = h @ self.W2 + self.b2
-        val_loss = F.cross_entropy(logits, self.y_val)
-        if self.verbose:
-            print(f"End train loss: {loss}")
-            print(f"End validation loss: {val_loss}")
-        self.val_loss = val_loss
-        self.loss = loss
+        loss = F.cross_entropy(logits, splits[1])
+        return loss.item()
 
     def get_loss(self) -> dict:
-        return {'train_loss': self.loss, 'val_loss': self.val_loss}
+        return {'train_loss': self.get_loss('train'),
+                'val_loss': self.get_loss('val')}
         
     def sample_words(self, num_words) -> str:
         # Sampling from the model
-        num_samples = 20
         outs = []
-        for _ in range(num_samples):
+        for _ in range(num_words):
             out = ''
             context = [0] * self.num_letter_seq
-            while True:
+            while len(out) < 20: # safe guard
                 emb = self.C[torch.tensor([context])]
                 h = torch.tanh(emb.view(1, -1) @ self.W1 + self.b1)
                 logits = h @ self.W2 + self.b2
@@ -136,21 +134,22 @@ class MakeMoreMLP:
                 context = context[1:] + [idx]
                 if idx == 0:
                     break
-                out += itos[idx]   
+                out += self.itos[idx]
             outs.append(out)
         return outs
 
         
 if __name__ == "__main__":
+    num_epochs = 200000
     mlp = MakeMoreMLP(
         num_letter_seq=5,
         num_dimensions=10,
         num_hidden_neurons=300,
         batch_size=128,
-        num_epochs=200000,
-        f_lr=lambda x: 0.1 if x < 100000 else 0.01,
+        num_epochs=num_epochs,
+        f_lr=lambda x: 0.1 if x < num_epochs/2 else 0.01,
         verbose=False,
         print_every=10000)
     print(f"Final loss: {mlp.get_loss()}")
     print(f"Number of parameters: {mlp.get_num_parameters()}")
-    print(f"Sample words: {mlp.sample_words(20)}")
+    print(f"Sample words: {mlp.sample_words(10)}")
